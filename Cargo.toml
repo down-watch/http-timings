@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "A simple library to measure the key HTTP timings from the development tools"
 license-file = "LICENSE"
-repository = "https://github.com/Perpetual-Pulse/http-timings"
+repository = "https://github.com/down-watch/http-timings"
 readme = "README.md"
 keywords = ["ttfb", "http", "timings", "web", "performance"]
 categories = ["development-tools", "web-programming", "performance"]
+documentation = "https://docs.rs/http-timings"
+authors = [
+    "Fabio Almeida <me@fabioalmeida.dev>"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
