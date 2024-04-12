@@ -6,7 +6,7 @@ description = "A simple library to measure the key HTTP timings from the develop
 license-file = "LICENSE"
 repository = "https://github.com/Perpetual-Pulse/http-timings"
 readme = "README.md"
-keywords = ["ttfb", "http", "timings", "web", "devtools", "tools", "performance"]
+keywords = ["ttfb", "http", "timings", "web", "performance"]
 categories = ["development-tools", "web-programming", "performance"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
