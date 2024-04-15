@@ -231,6 +231,7 @@ fn get_dns_timing(url: &Url) -> Result<Duration, Box<dyn Error>> {
 
 fn get_tcp_timing(
     url: &Url,
+    max_duration: Option<Duration>,
 ) -> Result<(Box<dyn ReadWrite + Send + Sync>, Duration), Box<dyn Error>> {
     // Unwrap is safe here because we know the URL is valid from the DNS timing
     let host = url.host_str().unwrap();
@@ -239,6 +240,7 @@ fn get_tcp_timing(
         Ok(stream) => stream,
         Err(e) => return Err(Box::new(e)),
     };
+    stream.set_read_timeout(max_duration)?;
     Ok((Box::new(stream), now.elapsed()))
 }
 
@@ -377,14 +379,10 @@ fn get_content_download_timing(
     Ok((status, content_download_time, body))
 }
 
-/// Get the HTTP timings, status and body for a given URL
-///
-/// # Errors
-/// This will error if:
-/// - The URL is invalid
-/// - Any timing step fails
-/// - Decoding the body fails
-pub fn request_url(url_input: impl AsRef<str>) -> Result<RequestOutput, Box<dyn Error>> {
+fn get_request_output(
+    url_input: impl AsRef<str>,
+    max_duration: Option<Duration>,
+) -> Result<RequestOutput, Box<dyn Error>> {
     let input = url_input.as_ref();
     if input.is_empty() {
         return Err(Box::new(std::io::Error::new(
@@ -405,7 +403,7 @@ pub fn request_url(url_input: impl AsRef<str>) -> Result<RequestOutput, Box<dyn 
     };
 
     let dns = get_dns_timing(&url)?;
-    let (stream, tcp) = get_tcp_timing(&url)?;
+    let (stream, tcp) = get_tcp_timing(&url, max_duration)?;
     let (mut stream, tls) = get_tls_timing(&url, stream)?;
     let http_send = get_http_send_timing(&url, &mut stream)?;
     let ttfb = get_ttfb_timing(&mut stream)?;
@@ -426,6 +424,31 @@ pub fn request_url(url_input: impl AsRef<str>) -> Result<RequestOutput, Box<dyn 
         ),
         body,
     })
+}
+
+/// Get the HTTP timings, status and body for a given URL
+///
+/// # Errors
+/// This will error if:
+/// - The URL is invalid
+/// - Any timing step fails
+/// - Decoding the body fails
+pub fn request_url(url_input: impl AsRef<str>) -> Result<RequestOutput, Box<dyn Error>> {
+    get_request_output(url_input, None)
+}
+
+/// Get the HTTP timings, status and body for a given URL with a timeout
+///
+/// # Errors
+/// This will error if:
+/// - The URL is invalid
+/// - Any timing step fails
+/// - Decoding the body fails
+pub fn request_url_with_timeout(
+    url_input: impl AsRef<str>,
+    max_duration: Duration,
+) -> Result<RequestOutput, Box<dyn Error>> {
+    get_request_output(url_input, Some(max_duration))
 }
 
 #[cfg(test)]
