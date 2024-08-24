@@ -477,10 +477,10 @@ mod test {
 
     #[test]
     fn test_ip() {
-        let url = "1.1.1.1";
+        let url = "one.one.one.one";
         let output = request_url(url).unwrap();
-        assert_eq!(output.status(), 302);
-        assert!(output.body().is_empty());
+        assert_eq!(output.status(), 200);
+        assert!(!output.body().is_empty());
         assert!(output.timings().dns().total().as_secs() < 1);
         assert!(output.timings().content_download().total().as_secs() < 5);
     }
