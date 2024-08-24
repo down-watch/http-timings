@@ -7,7 +7,7 @@ license-file = "LICENSE"
 repository = "https://github.com/down-watch/http-timings"
 readme = "README.md"
 keywords = ["ttfb", "http", "timings", "web", "performance"]
-categories = ["development-tools", "web-programming", "performance"]
+categories = ["development-tools", "web-programming"]
 documentation = "https://docs.rs/http-timings"
 authors = [
     "Fabio Almeida <me@fabioalmeida.dev>"
