@@ -14,7 +14,7 @@
 //! ```
 //! use http_timings::request_url;
 //!
-//! if let Some(timings) = request_url("https://www.google.com") {
+//! if let Ok(timings) = request_url("https://www.google.com") {
 //!    println!("{:?}", timings); // Outputs a [`RequestOutput`] struct
 //! }
 //! ```
