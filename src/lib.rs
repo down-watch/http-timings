@@ -236,7 +236,17 @@ fn get_tcp_timing(
     // Unwrap is safe here because we know the URL is valid from the DNS timing
     let host = url.host_str().unwrap();
     let now = std::time::Instant::now();
-    let stream = match TcpStream::connect(format!("{host}:443")) {
+    let port = url.port().unwrap_or(match url.scheme() {
+        "http" => 80,
+        "https" => 443,
+        _ => {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid URL scheme",
+            )))
+        }
+    });
+    let stream = match TcpStream::connect(format!("{host}:{port}")) {
         Ok(stream) => stream,
         Err(e) => return Err(Box::new(e)),
     };
@@ -247,7 +257,7 @@ fn get_tcp_timing(
 fn get_tls_timing(
     url: &Url,
     stream: Box<dyn ReadWrite + Send + Sync>,
-) -> Result<(Box<dyn ReadWrite + Send + Sync>, Duration), Box<dyn Error>> {
+) -> Result<(Box<dyn ReadWrite + Send + Sync>, Option<Duration>), Box<dyn Error>> {
     let connector = RustlsConnector::new_with_webpki_roots_certs();
     let now = std::time::Instant::now();
     let stream = match connector.connect(url.host_str().unwrap(), stream) {
@@ -256,7 +266,7 @@ fn get_tls_timing(
             return Err(Box::new(e));
         }
     };
-    Ok((Box::new(stream), now.elapsed()))
+    Ok((Box::new(stream), Some(now.elapsed())))
 }
 
 fn get_http_send_timing(
@@ -300,7 +310,7 @@ fn get_content_download_timing(
     let headers = header_buf.split('\n');
     let content_length = match headers
         .clone()
-        .filter(|line| line.starts_with("Content-Length"))
+        .filter(|line| line.to_ascii_lowercase().starts_with("content-length"))
         .collect::<Vec<_>>()
         .first()
     {
@@ -310,21 +320,6 @@ fn get_content_download_timing(
             .unwrap_or(0),
         None => 0,
     };
-
-    let mut body_buf;
-    if content_length == 0 {
-        body_buf = vec![];
-        if let Err(e) = reader.read_to_end(&mut body_buf) {
-            return Err(Box::new(e));
-        }
-    } else {
-        body_buf = vec![0_u8; content_length];
-        if let Err(e) = reader.read_exact(&mut body_buf) {
-            return Err(Box::new(e));
-        };
-    }
-
-    let content_download_time = now.elapsed();
 
     let status = match headers
         .clone()
@@ -341,8 +336,27 @@ fn get_content_download_timing(
         }
     };
 
+    if content_length == 0 {
+        return Ok((status, now.elapsed(), String::new()));
+    }
+
+    let mut body_buf;
+    if content_length == 0 {
+        body_buf = vec![];
+        if let Err(e) = reader.read_to_end(&mut body_buf) {
+            return Err(Box::new(e));
+        }
+    } else {
+        body_buf = vec![0_u8; content_length];
+        if let Err(e) = reader.read_exact(&mut body_buf) {
+            return Err(Box::new(e));
+        };
+    }
+
+    let content_download_time = now.elapsed();
+
     let content_encoding = match headers
-        .filter(|line| line.starts_with("Content-Encoding"))
+        .filter(|line| line.to_ascii_lowercase().starts_with("content-encoding"))
         .collect::<Vec<_>>()
         .first()
     {
@@ -404,24 +418,18 @@ fn get_request_output(
 
     let dns = get_dns_timing(&url)?;
     let (stream, tcp) = get_tcp_timing(&url, max_duration)?;
-    let (mut stream, tls) = get_tls_timing(&url, stream)?;
+    let (mut stream, tls) = if url.scheme() == "https" {
+        get_tls_timing(&url, stream)?
+    } else {
+        (stream, None)
+    };
     let http_send = get_http_send_timing(&url, &mut stream)?;
     let ttfb = get_ttfb_timing(&mut stream)?;
     let (status, content_download, body) = get_content_download_timing(&mut stream)?;
 
     Ok(RequestOutput {
         status,
-        timings: RequestTimings::new(
-            dns,
-            tcp,
-            match url.scheme() {
-                "https" => Some(tls),
-                _ => None,
-            },
-            http_send,
-            ttfb,
-            content_download,
-        ),
+        timings: RequestTimings::new(dns, tcp, tls, http_send, ttfb, content_download),
         body,
     })
 }
@@ -453,12 +461,15 @@ pub fn request_url_with_timeout(
 
 #[cfg(test)]
 mod test {
-    use crate::request_url;
+    use std::time::Duration;
+    const TIMEOUT: Duration = Duration::from_secs(5);
+
+    use crate::request_url_with_timeout;
 
     #[test]
     fn test_non_tls_connection() {
         let url = "neverssl.com";
-        let output = request_url(url).unwrap();
+        let output = request_url_with_timeout(url, TIMEOUT).unwrap();
         assert_eq!(output.status(), 200);
         assert!(output.body().contains("Follow @neverssl"));
         assert!(output.timings().dns().total().as_secs() < 1);
@@ -468,7 +479,7 @@ mod test {
     #[test]
     fn test_popular_tls_connection() {
         let url = "https://www.google.com";
-        let output = request_url(url).unwrap();
+        let output = request_url_with_timeout(url, TIMEOUT).unwrap();
         assert_eq!(output.status(), 200);
         assert!(output.body().contains("Google Search"));
         assert!(output.timings().dns().total().as_secs() < 1);
@@ -477,16 +488,11 @@ mod test {
 
     #[test]
     fn test_ip() {
-        let url = "one.one.one.one";
-        let output = request_url(url).unwrap();
-        assert_eq!(output.status(), 200);
+        let url = "1.1.1.1";
+        let output = request_url_with_timeout(url, TIMEOUT).unwrap();
+        assert_eq!(output.status(), 301);
         assert!(!output.body().is_empty());
         assert!(output.timings().dns().total().as_secs() < 1);
         assert!(output.timings().content_download().total().as_secs() < 5);
-    }
-
-    #[test]
-    fn i_need_this_rq() {
-        println!("{:?}", request_url("https://www.google.com").unwrap());
     }
 }
